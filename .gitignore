@@ -1,6 +1,7 @@
 # Secrets
 .env
 .env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -16,3 +17,6 @@ venv/
 
 # OS
 .DS_Store
+
+# yt-dlp cookies
+cookies.txt
