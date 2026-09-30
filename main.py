@@ -156,7 +156,11 @@ def get_media(url: str, source: str, folder: str) -> tuple[Path, str, dict | Non
         'ignore_no_formats_error': True,
     }
     if source == "instagram":
-        ydl_opts['cookiesfrombrowser'] = ('chrome',)
+        cookies_file = getenv("COOKIES_FILE")
+        if cookies_file and Path(cookies_file).is_file():
+            ydl_opts['cookiefile'] = cookies_file
+        elif not cookies_file:
+            ydl_opts['cookiesfrombrowser'] = ('chrome',)
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
