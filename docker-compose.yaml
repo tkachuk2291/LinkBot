@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-flash-latest}
+      - COOKIES_FILE=/data/cookies.txt
+    volumes:
+      - /home/server/linkbot-data:/data
+    restart: unless-stopped
