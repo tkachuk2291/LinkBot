@@ -139,6 +139,25 @@ class YdlLogger:
         logging.error(msg)
 
 
+def fetch(ydl_opts: dict, url: str, source: str, folder: str) -> tuple[dict, list, Path | None, tuple | None]:
+    """Качає відео, а для поста з фото — картинку і музику до неї."""
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        # Карусель приходить плейлистом: беремо перше відео з неї, а якщо відео нема — перше фото
+        entries = info.get('entries') or [info]
+        videos = [entry for entry in entries if entry.get('formats')]
+        if videos:
+            ydl.process_ie_result(videos[0], download=True)
+            image = music = None
+        else:
+            image_url = next((entry['thumbnail'] for entry in entries if entry.get('thumbnail')), None)
+            if image_url is None:
+                raise RuntimeError("В посте нет ни видео, ни фото")
+            image = download(ydl, image_url, Path(folder) / "image")
+            music = get_instagram_music(ydl, url, folder) if source == "instagram" else None
+    return info, videos, image, music
+
+
 def get_media(url: str, source: str, folder: str) -> tuple[Path, str, dict | None]:
     """Качає відео з поста. Для поста лише з фото повертає картинку і None замість даних відео."""
     ydl_opts = {
@@ -162,20 +181,16 @@ def get_media(url: str, source: str, folder: str) -> tuple[Path, str, dict | Non
         elif not cookies_file:
             ydl_opts['cookiesfrombrowser'] = ('chrome',)
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        # Карусель приходить плейлистом: беремо перше відео з неї, а якщо відео нема — перше фото
-        entries = info.get('entries') or [info]
-        videos = [entry for entry in entries if entry.get('formats')]
-        if videos:
-            ydl.process_ie_result(videos[0], download=True)
-            music = None
-        else:
-            image_url = next((entry['thumbnail'] for entry in entries if entry.get('thumbnail')), None)
-            if image_url is None:
-                raise RuntimeError("В посте нет ни видео, ни фото")
-            image = download(ydl, image_url, Path(folder) / "image")
-            music = get_instagram_music(ydl, url, folder) if source == "instagram" else None
+    try:
+        info, videos, image, music = fetch(ydl_opts, url, source, folder)
+    except yt_dlp.utils.DownloadError:
+        if 'cookiefile' not in ydl_opts and 'cookiesfrombrowser' not in ydl_opts:
+            raise
+        # Instagram міг заблокувати акаунт (checkpoint_required) — публічні пости відкриваються і без входу
+        logging.warning("Download with cookies failed, retrying without them")
+        ydl_opts.pop('cookiefile', None)
+        ydl_opts.pop('cookiesfrombrowser', None)
+        info, videos, image, music = fetch(ydl_opts, url, source, folder)
 
     # Назва, опис і автор допомагають Gemini впізнати, що це за відео
     meta = "\n".join(
