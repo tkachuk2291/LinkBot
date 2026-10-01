@@ -46,17 +46,23 @@ python3 -m venv .venv
 
 `.env` в git не коммитить (он в `.gitignore`).
 
-## 4. ⚠️ Instagram: cookies
+## 4. Instagram: вход через браузер на сервере
 
-В `get_media()` для Instagram стоит `ydl_opts['cookiesfrombrowser'] = ('chrome',)` — cookies берутся
-из локального Chrome. **На сервере без Chrome это упадёт.** Варианты:
+Instagram блокирует аккаунт (`checkpoint_required`), если cookies с домашнего ПК начинают
+использоваться с IP сервера. Поэтому входить в Instagram нужно с самого сервера — через
+контейнер `browser` (Chromium с доступом через веб), бот читает cookies из его профиля.
 
-1. Экспортировать cookies instagram.com из браузера в формате Netscape (`cookies.txt`, например расширением
-   «Get cookies.txt LOCALLY»), положить на сервер и заменить строку на
-   `ydl_opts['cookiefile'] = 'cookies.txt'` (путь лучше вынести в переменную окружения).
-2. Если залогиненный Chrome на сервере есть — оставить как есть.
+1. В `.env` задать `BROWSER_PASSWORD` (логин — `admin` или `BROWSER_USER`).
+2. `mkdir -p /home/server/linkbot-browser && sudo chown 1000:1000 /home/server/linkbot-browser`
+3. `docker compose up -d --build`
+4. Порт браузера открыт только на localhost сервера. С компьютера пробросить туннель:
+   `ssh -L 3000:localhost:3000 server@<ip-сервера>` и открыть http://localhost:3000
+5. В открывшемся Chromium войти в Instagram (лучше отдельный аккаунт для бота).
+6. Готово: бот берёт cookies из `/home/server/linkbot-browser/.config/chromium/Default`.
+   Браузер можно оставить запущенным или остановить: `docker compose stop browser`.
 
-`cookies.txt` тоже нельзя коммитить (добавить в `.gitignore`).
+Если профиля нет или cookies не работают, бот качает без входа: публичные посты скачиваются,
+у фото-постов не будет музыки, закрытые и 18+ посты не скачаются.
 
 ## 5. Запуск
 

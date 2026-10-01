@@ -5,7 +5,30 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-flash-latest}
-      - COOKIES_FILE=/data/cookies.txt
+      # профиль Chromium из контейнера browser, бот берёт оттуда cookies Instagram
+      - BROWSER_PROFILE=/browser/.config/chromium/Default
     volumes:
-      - /home/server/linkbot-data:/data
+      - /home/server/linkbot-browser:/browser:ro
+    restart: unless-stopped
+
+  # Chromium с доступом через веб: http://localhost:3000 (через SSH-туннель).
+  # Нужен, чтобы один раз войти в Instagram с IP сервера.
+  browser:
+    image: lscr.io/linuxserver/chromium:latest
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Kyiv
+      - CUSTOM_USER=${BROWSER_USER:-admin}
+      - PASSWORD=${BROWSER_PASSWORD:?задай BROWSER_PASSWORD в .env}
+      # cookies без системного keyring, чтобы бот мог их прочитать
+      - CHROME_CLI=--password-store=basic
+    volumes:
+      - /home/server/linkbot-browser:/config
+    # только для localhost сервера, снаружи порт закрыт
+    ports:
+      - 127.0.0.1:3000:3000
+    shm_size: 1gb
+    security_opt:
+      - seccomp:unconfined
     restart: unless-stopped

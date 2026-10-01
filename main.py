@@ -175,20 +175,22 @@ def get_media(url: str, source: str, folder: str) -> tuple[Path, str, dict | Non
         'ignore_no_formats_error': True,
     }
     if source == "instagram":
-        cookies_file = getenv("COOKIES_FILE")
-        if cookies_file and Path(cookies_file).is_file():
-            ydl_opts['cookiefile'] = cookies_file
-        elif not cookies_file:
+        # На сервері — профіль Chromium з контейнера browser, у який вручну входять в Instagram.
+        # Він запущений з --password-store=basic, тому кукі шифруються без системного keyring.
+        browser_profile = getenv("BROWSER_PROFILE")
+        if browser_profile:
+            ydl_opts['cookiesfrombrowser'] = ('chromium', browser_profile, 'BASICTEXT', None)
+        else:
             ydl_opts['cookiesfrombrowser'] = ('chrome',)
 
     try:
         info, videos, image, music = fetch(ydl_opts, url, source, folder)
-    except yt_dlp.utils.DownloadError:
-        if 'cookiefile' not in ydl_opts and 'cookiesfrombrowser' not in ydl_opts:
+    except Exception:
+        if 'cookiesfrombrowser' not in ydl_opts:
             raise
-        # Instagram міг заблокувати акаунт (checkpoint_required) — публічні пости відкриваються і без входу
+        # Профілю ще нема або Instagram заблокував акаунт (checkpoint_required) —
+        # публічні пости відкриваються і без входу
         logging.warning("Download with cookies failed, retrying without them")
-        ydl_opts.pop('cookiefile', None)
         ydl_opts.pop('cookiesfrombrowser', None)
         info, videos, image, music = fetch(ydl_opts, url, source, folder)
 
