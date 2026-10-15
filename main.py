@@ -332,11 +332,18 @@ async def show_summary(target: Message, summary_coro) -> None:
     else:
         edit, field, limit = target.edit_text, "text", MAX_TEXT
 
+    async def safe_edit(value: str) -> None:
+        # Поки Gemini думає, повідомлення можуть видалити — тоді редагувати вже нічого
+        try:
+            await edit(**{field: value[:limit]})
+        except TelegramBadRequest as e:
+            logging.warning("Can't edit summary message: %s", e.message)
+
     try:
         summary = await summary_coro
     except Exception as e:
         logging.exception("Summary failed")
-        await edit(**{field: f"Не удалось сделать выжимку: {e}"[:limit]})
+        await safe_edit(f"Не удалось сделать выжимку: {e}")
         return
 
     body = f"📝 <b>Выжимка</b>\n\n<blockquote>{summary.strip()}</blockquote>"
@@ -344,11 +351,10 @@ async def show_summary(target: Message, summary_coro) -> None:
         try:
             await edit(**{field: body}, parse_mode="HTML")
             return
-        except TelegramBadRequest:
-            logging.exception("Bad HTML from Gemini, sending plain text")
+        except TelegramBadRequest as e:
+            logging.warning("HTML edit failed (%s), sending plain text", e.message)
 
-    plain = html.unescape(re.sub(r"<[^>]+>", "", body))
-    await edit(**{field: plain[:limit]})
+    await safe_edit(html.unescape(re.sub(r"<[^>]+>", "", body)))
 
 
 @dp.message(Command("start"))
@@ -383,6 +389,14 @@ async def is_reachable(url: str) -> bool:
                 return response.status not in (404, 410) and response.status < 500
     except Exception:
         return False
+
+
+async def delete_quietly(message: Message) -> None:
+    # Статус могли вже видалити вручну
+    try:
+        await message.delete()
+    except TelegramBadRequest as e:
+        logging.warning("Can't delete status message: %s", e.message)
 
 
 @dp.channel_post(F.text)
@@ -421,7 +435,7 @@ async def link_handler(message: Message) -> None:
         # Спочатку відразу віддаємо відео чи фото, вижимку допишемо в підпис, коли буде готова
         if video is None:
             target = await message.reply_photo(FSInputFile(path), caption="⏳ Делаю выжимку...")
-            await status.delete()
+            await delete_quietly(status)
         elif path.stat().st_size > MAX_SIZE:
             target = status
             await target.edit_text(
@@ -433,7 +447,7 @@ async def link_handler(message: Message) -> None:
                 FSInputFile(path), caption="⏳ Делаю выжимку...", supports_streaming=True,
                 width=video["width"], height=video["height"], duration=video["duration"],
             )
-            await status.delete()
+            await delete_quietly(status)
 
         await show_summary(target, summarize_media(path, meta))
 
