@@ -25,13 +25,10 @@ from aiogram.types import FSInputFile, Message, ReplyParameters
 from google import genai
 from google.genai import errors, types
 
-# Боти в Telegram можуть надсилати файли до 50 МБ
 MAX_SIZE = 50 * 1024 * 1024
-# Максимальна довжина повідомлення і підпису до відео в Telegram
 MAX_TEXT = 4096
 MAX_CAPTION = 1024
 
-# Ссылки, которые не скачались из-за сети: бот докачает их, когда связь вернётся
 PENDING_FILE = Path(getenv("PENDING_FILE", "/data/pending.json"))
 RETRY_EVERY = 60
 GIVE_UP_AFTER = 24 * 3600
@@ -116,13 +113,11 @@ def make_telegram_friendly(path: Path) -> Path:
     info = probe(path)
     out = path.with_name(f"tg_{path.name}")
     if info["codec"] == "h264" and info["pix_fmt"] == "yuv420p":
-        # Кодек підходить, лише переносимо індекс на початок файлу, щоб відео одразу стрімилось
         args = ["-c", "copy"]
     else:
         logging.info("Re-encode %s -> h264", info["codec"])
         args = [
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
-            # не більше 720 по короткій стороні, розміри мають бути парними
             "-vf", "scale='if(gt(iw,ih),-2,min(720,iw))':'if(gt(iw,ih),min(720,ih),-2)'",
             "-c:a", "aac", "-b:a", "128k",
         ]
@@ -155,7 +150,6 @@ def fetch(ydl_opts: dict, url: str, source: str, folder: str) -> tuple[dict, lis
     """Качає відео, а для поста з фото — картинку і музику до неї."""
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
-        # Карусель приходить плейлистом: беремо перше відео з неї, а якщо відео нема — перше фото
         entries = info.get('entries') or [info]
         videos = [entry for entry in entries if entry.get('formats')]
         if videos:
@@ -174,7 +168,6 @@ def get_media(url: str, source: str, folder: str) -> tuple[Path, str, dict | Non
     """Качає відео з поста. Для поста лише з фото повертає картинку і None замість даних відео."""
     ydl_opts = {
         'format': 'bv*+ba/b',
-        # спершу H.264 (його показує Telegram), далі не більше 720p по короткій стороні
         'format_sort': ['vcodec:h264', 'res:720', 'acodec:aac'],
         'merge_output_format': 'mp4',
         'outtmpl': f'{folder}/%(id)s.%(ext)s',
@@ -183,12 +176,9 @@ def get_media(url: str, source: str, folder: str) -> tuple[Path, str, dict | Non
         'noprogress': True,
         'logger': YdlLogger(),
         'remote_components': ['ejs:github'],
-        # пост з фото в Instagram — не помилка, тоді візьмемо картинку
         'ignore_no_formats_error': True,
     }
     if source == "instagram":
-        # На сервері — профіль Chromium з контейнера browser, у який вручну входять в Instagram.
-        # Він запущений з --password-store=basic, тому кукі шифруються без системного keyring.
         browser_profile = getenv("BROWSER_PROFILE")
         if browser_profile:
             ydl_opts['cookiesfrombrowser'] = ('chromium', browser_profile, 'BASICTEXT', None)
@@ -200,13 +190,10 @@ def get_media(url: str, source: str, folder: str) -> tuple[Path, str, dict | Non
     except Exception:
         if 'cookiesfrombrowser' not in ydl_opts:
             raise
-        # Профілю ще нема або Instagram заблокував акаунт (checkpoint_required) —
-        # публічні пости відкриваються і без входу
         logging.warning("Download with cookies failed, retrying without them")
         ydl_opts.pop('cookiesfrombrowser', None)
         info, videos, image, music = fetch(ydl_opts, url, source, folder)
 
-    # Назва, опис і автор допомагають Gemini впізнати, що це за відео
     meta = "\n".join(
         f"{label}: {info[key]}"
         for label, key in (("Название", "title"), ("Автор", "uploader"), ("Описание", "description"))
@@ -266,7 +253,6 @@ def photo_with_music(image: Path, audio: Path, start: float, duration: float) ->
          "-ss", str(start), "-t", str(duration), "-i", str(audio),
          "-map", "0:v", "-map", "1:a", "-shortest", "-t", str(duration),
          "-c:v", "libx264", "-tune", "stillimage", "-preset", "veryfast", "-r", "25",
-         # не ширше 1080, розміри мають бути парними
          "-vf", "scale='trunc(min(1080,iw)/2)*2':-2:out_range=tv,format=yuv420p",
          "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out)],
         check=True,
@@ -329,7 +315,6 @@ async def summarize_media(path: Path, meta: str) -> str:
 
 
 async def summarize_url(url: str) -> str:
-    # Gemini сам відкриває сторінку за посиланням
     prompt = SUMMARY_PROMPT.format(max_chars=MAX_TEXT - 500)
     return await generate(
         f"{prompt}\n\n{url}",
@@ -345,7 +330,6 @@ async def show_summary(target: Message, summary_coro) -> None:
         edit, field, limit = target.edit_text, "text", MAX_TEXT
 
     async def safe_edit(value: str) -> None:
-        # Поки Gemini думає, повідомлення можуть видалити — тоді редагувати вже нічого
         try:
             await edit(**{field: value[:limit]})
         except TelegramBadRequest as e:
@@ -404,7 +388,6 @@ async def is_reachable(url: str) -> bool:
 
 
 async def delete_quietly(message: Message) -> None:
-    # Статус могли вже видалити вручну
     try:
         await message.delete()
     except TelegramBadRequest as e:
@@ -481,7 +464,6 @@ async def process_link(bot: Bot, chat_id: int, message_id: int, url: str, source
                 await status.edit_text("Не удалось скачать видео по этой ссылке.")
             return
 
-        # Спочатку відразу віддаємо відео чи фото, вижимку допишемо в підпис, коли буде готова
         if video is None:
             target = await bot.send_photo(chat_id, FSInputFile(path), caption="⏳ Делаю выжимку...",
                                           reply_parameters=reply_to)
@@ -500,7 +482,6 @@ async def process_link(bot: Bot, chat_id: int, message_id: int, url: str, source
             )
             await delete_quietly(status)
 
-        # Видео уже у пользователя: ошибка выжимки не повод качать его заново
         try:
             await show_summary(target, summarize_media(path, meta))
         except Exception:
@@ -562,7 +543,6 @@ async def retry_one(bot: Bot, item: dict) -> None:
         await process_link(bot, chat_id, message_id, url, detect_source(url), status)
     except Exception as e:
         if is_network_error(e) or not await internet_ok():
-            # Сеть снова пропала — оставляем в очереди, обновив статус
             items = load_pending()
             for i in items:
                 if (i["chat_id"], i["message_id"]) == (chat_id, message_id):
@@ -584,7 +564,6 @@ async def retry_one(bot: Bot, item: dict) -> None:
 @dp.channel_post(F.text)
 @dp.message(F.text, F.chat.type == "private")
 async def link_handler(message: Message) -> None:
-    # Без нормального посилання мовчки ігноруємо
     url = find_url(message)
     if url is None:
         return
