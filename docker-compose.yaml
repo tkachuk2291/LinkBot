@@ -9,6 +9,8 @@ services:
       - BROWSER_PROFILE=/browser/.config/chromium/Default
     volumes:
       - /home/server/linkbot-browser:/browser:ro
+      # очередь ссылок, которые не скачались из-за сети
+      - /home/server/linkbot-data:/data
     restart: unless-stopped
 
   # Chromium с доступом через веб: http://localhost:3000 (через SSH-туннель).

@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from os import getenv
 from pathlib import Path
 from urllib.parse import urlparse
@@ -18,9 +19,9 @@ import aiohttp
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.filters import Command
-from aiogram.types import FSInputFile, Message
+from aiogram.types import FSInputFile, Message, ReplyParameters
 from google import genai
 from google.genai import errors, types
 
@@ -29,6 +30,17 @@ MAX_SIZE = 50 * 1024 * 1024
 # Максимальна довжина повідомлення і підпису до відео в Telegram
 MAX_TEXT = 4096
 MAX_CAPTION = 1024
+
+# Ссылки, которые не скачались из-за сети: бот докачает их, когда связь вернётся
+PENDING_FILE = Path(getenv("PENDING_FILE", "/data/pending.json"))
+RETRY_EVERY = 60
+GIVE_UP_AFTER = 24 * 3600
+NETWORK_MARKERS = (
+    "timed out", "timeout", "could not resolve", "name resolution", "connection reset",
+    "connection refused", "connection aborted", "network is unreachable", "operation too slow",
+    "failed to establish", "connect call failed", "cannot connect to host",
+    "curl: (6)", "curl: (7)", "curl: (28)", "curl: (35)", "curl: (56)",
+)
 
 INSTAGRAM_POST_RE = re.compile(r"instagram\.com/(?:[\w.]+/)?(?:p|reels?|tv)/")
 
@@ -399,6 +411,176 @@ async def delete_quietly(message: Message) -> None:
         logging.warning("Can't delete status message: %s", e.message)
 
 
+def is_network_error(error: BaseException | None) -> bool:
+    """Сбой сети, а не проблема с самой ссылкой: смотрим всю цепочку исключений."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, (TimeoutError, ConnectionError, aiohttp.ClientConnectionError, TelegramNetworkError)):
+            return True
+        if any(marker in str(error).lower() for marker in NETWORK_MARKERS):
+            return True
+        error = error.__cause__ or error.__context__
+    return False
+
+
+async def internet_ok() -> bool:
+    try:
+        async with aiohttp.ClientSession() as session:
+            for url in ("https://api.telegram.org", "https://www.google.com"):
+                async with session.head(url, timeout=aiohttp.ClientTimeout(total=10)):
+                    pass
+        return True
+    except Exception:
+        return False
+
+
+def load_pending() -> list[dict]:
+    try:
+        return json.loads(PENDING_FILE.read_text())
+    except FileNotFoundError:
+        return []
+    except Exception:
+        logging.exception("Can't read %s", PENDING_FILE)
+        return []
+
+
+def save_pending(items: list[dict]) -> None:
+    PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PENDING_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(items, ensure_ascii=False, indent=1))
+    tmp.replace(PENDING_FILE)
+
+
+def add_pending(chat_id: int, message_id: int, url: str, status_id: int | None) -> None:
+    items = [i for i in load_pending() if (i["chat_id"], i["message_id"]) != (chat_id, message_id)]
+    items.append({"chat_id": chat_id, "message_id": message_id, "url": url,
+                  "status_id": status_id, "added": time.time()})
+    save_pending(items)
+
+
+def drop_pending(chat_id: int, message_id: int) -> None:
+    save_pending([i for i in load_pending() if (i["chat_id"], i["message_id"]) != (chat_id, message_id)])
+
+
+async def process_link(bot: Bot, chat_id: int, message_id: int, url: str, source: str, status: Message) -> None:
+    """Качает видео по ссылке и отвечает им на исходное сообщение.
+    Сбой сети пробрасывает наружу, чтобы ссылку поставили в очередь."""
+    reply_to = ReplyParameters(message_id=message_id, allow_sending_without_reply=True)
+
+    with tempfile.TemporaryDirectory() as folder:
+        try:
+            path, meta, video = await asyncio.to_thread(get_media, url, source, folder)
+        except Exception as e:
+            if is_network_error(e) or not await internet_ok():
+                raise
+            logging.exception("Download failed")
+            if "login" in str(e).lower() or "empty media response" in str(e):
+                await status.edit_text("Instagram не отдаёт этот пост: он закрытый, удалён или нужен вход в аккаунт.")
+            else:
+                await status.edit_text("Не удалось скачать видео по этой ссылке.")
+            return
+
+        # Спочатку відразу віддаємо відео чи фото, вижимку допишемо в підпис, коли буде готова
+        if video is None:
+            target = await bot.send_photo(chat_id, FSInputFile(path), caption="⏳ Делаю выжимку...",
+                                          reply_parameters=reply_to)
+            await delete_quietly(status)
+        elif path.stat().st_size > MAX_SIZE:
+            target = status
+            await target.edit_text(
+                "Видео больше 50 МБ, Telegram не даёт боту его отправить.\n"
+                "⏳ Делаю выжимку..."
+            )
+        else:
+            target = await bot.send_video(
+                chat_id, FSInputFile(path), caption="⏳ Делаю выжимку...", supports_streaming=True,
+                width=video["width"], height=video["height"], duration=video["duration"],
+                reply_parameters=reply_to,
+            )
+            await delete_quietly(status)
+
+        # Видео уже у пользователя: ошибка выжимки не повод качать его заново
+        try:
+            await show_summary(target, summarize_media(path, meta))
+        except Exception:
+            logging.exception("Summary failed after video was sent")
+
+
+async def queue_link(chat_id: int, message_id: int, url: str, status: Message | None) -> None:
+    logging.warning("No network, queued %s", url)
+    add_pending(chat_id, message_id, url, status.message_id if status else None)
+    if status:
+        try:
+            await status.edit_text("📡 Сейчас нет связи. Скачаю видео сам, как только сеть вернётся.")
+        except Exception:
+            pass
+
+
+async def retry_pending(bot: Bot) -> None:
+    """Раз в минуту проверяет сеть и докачивает ссылки из очереди, отвечая на исходные сообщения."""
+    while True:
+        try:
+            items = load_pending()
+            if items and await internet_ok():
+                for item in items:
+                    await retry_one(bot, item)
+        except Exception as e:
+            if not is_network_error(e):
+                logging.exception("Retry loop failed")
+        await asyncio.sleep(RETRY_EVERY)
+
+
+async def retry_one(bot: Bot, item: dict) -> None:
+    chat_id, message_id, url = item["chat_id"], item["message_id"], item["url"]
+    status_id = item.get("status_id")
+
+    if time.time() - item["added"] > GIVE_UP_AFTER:
+        drop_pending(chat_id, message_id)
+        if status_id:
+            try:
+                await bot.edit_message_text("Не удалось скачать видео: связи не было больше суток.",
+                                            chat_id=chat_id, message_id=status_id)
+            except Exception:
+                pass
+        return
+
+    text = "🔄 Связь вернулась, скачиваю видео..."
+    status = None
+    if status_id:
+        try:
+            status = await bot.edit_message_text(text, chat_id=chat_id, message_id=status_id)
+        except Exception:
+            status = None
+    if status is None:
+        status = await bot.send_message(
+            chat_id, text, reply_parameters=ReplyParameters(message_id=message_id, allow_sending_without_reply=True),
+        )
+
+    logging.info("Retrying queued link %s", url)
+    try:
+        await process_link(bot, chat_id, message_id, url, detect_source(url), status)
+    except Exception as e:
+        if is_network_error(e) or not await internet_ok():
+            # Сеть снова пропала — оставляем в очереди, обновив статус
+            items = load_pending()
+            for i in items:
+                if (i["chat_id"], i["message_id"]) == (chat_id, message_id):
+                    i["status_id"] = status.message_id
+            save_pending(items)
+            try:
+                await status.edit_text("📡 Связь опять пропала. Попробую ещё раз позже.")
+            except Exception:
+                pass
+            raise
+        logging.exception("Retry of %s failed", url)
+        try:
+            await status.edit_text("Не удалось скачать видео по этой ссылке.")
+        except Exception:
+            pass
+    drop_pending(chat_id, message_id)
+
+
 @dp.channel_post(F.text)
 @dp.message(F.text, F.chat.type == "private")
 async def link_handler(message: Message) -> None:
@@ -419,42 +601,23 @@ async def link_handler(message: Message) -> None:
     if source == "instagram" and not INSTAGRAM_POST_RE.search(url):
         return
 
-    status = await message.reply("Скачиваю видео...")
-
-    with tempfile.TemporaryDirectory() as folder:
-        try:
-            path, meta, video = await asyncio.to_thread(get_media, url, source, folder)
-        except Exception as e:
-            logging.exception("Download failed")
-            if "login" in str(e).lower() or "empty media response" in str(e):
-                await status.edit_text("Instagram не отдаёт этот пост: он закрытый, удалён или нужен вход в аккаунт.")
-            else:
-                await status.edit_text("Не удалось скачать видео по этой ссылке.")
-            return
-
-        # Спочатку відразу віддаємо відео чи фото, вижимку допишемо в підпис, коли буде готова
-        if video is None:
-            target = await message.reply_photo(FSInputFile(path), caption="⏳ Делаю выжимку...")
-            await delete_quietly(status)
-        elif path.stat().st_size > MAX_SIZE:
-            target = status
-            await target.edit_text(
-                "Видео больше 50 МБ, Telegram не даёт боту его отправить.\n"
-                "⏳ Делаю выжимку..."
-            )
-        else:
-            target = await message.reply_video(
-                FSInputFile(path), caption="⏳ Делаю выжимку...", supports_streaming=True,
-                width=video["width"], height=video["height"], duration=video["duration"],
-            )
-            await delete_quietly(status)
-
-        await show_summary(target, summarize_media(path, meta))
+    status = None
+    try:
+        status = await message.reply("Скачиваю видео...")
+        await process_link(message.bot, message.chat.id, message.message_id, url, source, status)
+    except Exception as e:
+        if not (is_network_error(e) or not await internet_ok()):
+            raise
+        await queue_link(message.chat.id, message.message_id, url, status)
 
 
 async def main() -> None:
     bot = Bot(token=TOKEN)
-    await dp.start_polling(bot)
+    retry_task = asyncio.create_task(retry_pending(bot))
+    try:
+        await dp.start_polling(bot)
+    finally:
+        retry_task.cancel()
 
 
 if __name__ == "__main__":
