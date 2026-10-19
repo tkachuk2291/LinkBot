@@ -10,6 +10,11 @@ services:
       - /home/server/linkbot-browser:/browser:ro
       - /home/server/linkbot-data:/data
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
 
   browser:
     image: lscr.io/linuxserver/chromium:latest
@@ -28,3 +33,8 @@ services:
     security_opt:
       - seccomp:unconfined
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"

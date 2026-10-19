@@ -7,7 +7,6 @@ import json
 import logging
 import re
 import subprocess
-import sys
 import tempfile
 import time
 from os import getenv
@@ -17,6 +16,8 @@ from urllib.parse import urlparse
 import aiohttp
 
 from dotenv import load_dotenv
+
+from logsetup import aiogram_middleware, setup_logging, watch_loop
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
@@ -591,6 +592,8 @@ async def link_handler(message: Message) -> None:
 
 
 async def main() -> None:
+    watch_loop()
+    dp.update.outer_middleware(aiogram_middleware())
     bot = Bot(token=TOKEN)
     retry_task = asyncio.create_task(retry_pending(bot))
     try:
@@ -600,5 +603,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    setup_logging("link-bot")
     asyncio.run(main())
