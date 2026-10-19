@@ -24,6 +24,7 @@
 - Тома: `/home/server/linkbot-browser:/browser:ro`, `/home/server/linkbot-data:/data`.
 
 ## Логи
+- Статистика для админ-бота: `stat(result, source)` пишет `event: "stat", stat: "links"` с `result` (video/photo/summary/failed/private/too_big/queued) и `source`.
 - JSON в stdout (`logsetup.py`), поля: ts, level, bot=link-bot, logger, msg, where, update_id, chat_id, user_id, text, traceback.
 - yt-dlp пишет через `YdlLogger` в root-логгер; ожидаемые предупреждения для фото-постов отфильтрованы.
 
