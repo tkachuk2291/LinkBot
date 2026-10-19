@@ -395,6 +395,10 @@ async def delete_quietly(message: Message) -> None:
         logging.warning("Can't delete status message: %s", e.message)
 
 
+def stat(result: str, source: str | None) -> None:
+    logging.info("Link %s", result, extra={"event": "stat", "stat": "links", "result": result, "source": source or "web"})
+
+
 def is_network_error(error: BaseException | None) -> bool:
     """Сбой сети, а не проблема с самой ссылкой: смотрим всю цепочку исключений."""
     seen = set()
@@ -460,8 +464,10 @@ async def process_link(bot: Bot, chat_id: int, message_id: int, url: str, source
                 raise
             logging.exception("Download failed")
             if "login" in str(e).lower() or "empty media response" in str(e):
+                stat("private", source)
                 await status.edit_text("Instagram не отдаёт этот пост: он закрытый, удалён или нужен вход в аккаунт.")
             else:
+                stat("failed", source)
                 await status.edit_text("Не удалось скачать видео по этой ссылке.")
             return
 
@@ -469,7 +475,9 @@ async def process_link(bot: Bot, chat_id: int, message_id: int, url: str, source
             target = await bot.send_photo(chat_id, FSInputFile(path), caption="⏳ Делаю выжимку...",
                                           reply_parameters=reply_to)
             await delete_quietly(status)
+            stat("photo", source)
         elif path.stat().st_size > MAX_SIZE:
+            stat("too_big", source)
             target = status
             await target.edit_text(
                 "Видео больше 50 МБ, Telegram не даёт боту его отправить.\n"
@@ -482,6 +490,7 @@ async def process_link(bot: Bot, chat_id: int, message_id: int, url: str, source
                 reply_parameters=reply_to,
             )
             await delete_quietly(status)
+            stat("video", source)
 
         try:
             await show_summary(target, summarize_media(path, meta))
@@ -491,6 +500,7 @@ async def process_link(bot: Bot, chat_id: int, message_id: int, url: str, source
 
 async def queue_link(chat_id: int, message_id: int, url: str, status: Message | None) -> None:
     logging.warning("No network, queued %s", url)
+    stat("queued", detect_source(url))
     add_pending(chat_id, message_id, url, status.message_id if status else None)
     if status:
         try:
@@ -575,6 +585,7 @@ async def link_handler(message: Message) -> None:
             logging.info("Skip unreachable link %s", url)
             return
         status = await message.reply("⏳ Делаю выжимку...")
+        stat("summary", None)
         await show_summary(status, summarize_url(url))
         return
 
