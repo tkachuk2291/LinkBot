@@ -36,7 +36,7 @@ GIVE_UP_AFTER = 24 * 3600
 NETWORK_MARKERS = (
     "timed out", "timeout", "could not resolve", "name resolution", "connection reset",
     "connection refused", "connection aborted", "network is unreachable", "operation too slow",
-    "failed to establish", "connect call failed", "cannot connect to host",
+    "failed to establish", "connect call failed", "cannot connect to host", "connection broken", "broken pipe",
     "curl: (6)", "curl: (7)", "curl: (28)", "curl: (35)", "curl: (56)",
 )
 
