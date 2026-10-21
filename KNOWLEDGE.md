@@ -32,6 +32,11 @@
 - **2026-10-18 07:25–07:28 UTC** — «Не удалось скачать видео». Причина: на сервере пропадали сеть/DNS
   (systemd-resolved, DNS Tailscale 100.100.100.100 в degraded-режиме), таймауты к Telegram, instagram.com, cdninstagram, tiktok.
   Код ни при чём. Решение: очередь повторов (см. выше). Упавшие до фикса ссылки не восстановить — chat_id не логировался.
+- **2026-10-21 22:52–23:10 UTC** — `[download] Got error: Connection broken: BrokenPipeError` при повторе из очереди.
+  Причина: снова деградация сети до Instagram (DNS-ошибки, read timeout к cdninstagram, curl 28; из контейнера instagram.com
+  не отвечал). Очередь сработала: рилс DeW0nZUowzl из двух каналов в `pending.json`. Дыра: «broken pipe»/«connection broken»
+  не входили в `NETWORK_MARKERS` — если бы это была последняя ошибка при живом `internet_ok()`, ссылка ушла бы в failed.
+  Фикс: добавлены маркеры, коммит 0fcbc1d.
 
 ## Полезное
 - Проверить скачивание вручную: `docker exec link_bot-bot-1 yt-dlp -s <url>`.
