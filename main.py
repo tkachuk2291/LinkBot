@@ -32,6 +32,9 @@ MAX_CAPTION = 1024
 
 PENDING_FILE = Path(getenv("PENDING_FILE", "/data/pending.json"))
 RETRY_EVERY = 60
+DOWNLOAD_TIMEOUT = 120
+SOCKET_TIMEOUT = 20
+MIN_SPEED = 200 * 1024
 GIVE_UP_AFTER = 24 * 3600
 NETWORK_MARKERS = (
     "timed out", "timeout", "could not resolve", "name resolution", "connection reset",
@@ -129,6 +132,17 @@ def make_telegram_friendly(path: Path) -> Path:
     return out
 
 
+class SlowDownload(Exception):
+    """Мережа надто повільна: закачка не вклалась у DOWNLOAD_TIMEOUT."""
+
+
+def deadline_hook(deadline: float):
+    def hook(d: dict) -> None:
+        if d.get("status") == "downloading" and time.monotonic() > deadline:
+            raise SlowDownload(f"operation too slow: download took longer than {DOWNLOAD_TIMEOUT}s")
+    return hook
+
+
 class YdlLogger:
     """Передає попередження yt-dlp у logging, крім очікуваних для постів з фото."""
     EXPECTED = ("There is no video in this post", "No video formats found", "Requested format is not available")
@@ -178,6 +192,8 @@ def get_media(url: str, source: str, folder: str) -> tuple[Path, str, dict | Non
         'logger': YdlLogger(),
         'remote_components': ['ejs:github'],
         'ignore_no_formats_error': True,
+        'socket_timeout': SOCKET_TIMEOUT,
+        'progress_hooks': [deadline_hook(time.monotonic() + DOWNLOAD_TIMEOUT)],
     }
     if source == "instagram":
         browser_profile = getenv("BROWSER_PROFILE")
@@ -188,8 +204,8 @@ def get_media(url: str, source: str, folder: str) -> tuple[Path, str, dict | Non
 
     try:
         info, videos, image, music = fetch(ydl_opts, url, source, folder)
-    except Exception:
-        if 'cookiesfrombrowser' not in ydl_opts:
+    except Exception as e:
+        if 'cookiesfrombrowser' not in ydl_opts or is_network_error(e):
             raise
         logging.warning("Download with cookies failed, retrying without them")
         ydl_opts.pop('cookiesfrombrowser', None)
@@ -423,6 +439,20 @@ async def internet_ok() -> bool:
         return False
 
 
+async def network_fast() -> bool:
+    """Чи тягне мережа відео: 1 МБ має скачатись зі швидкістю не нижче MIN_SPEED."""
+    size = 1024 * 1024
+    try:
+        async with aiohttp.ClientSession() as session:
+            start = time.monotonic()
+            async with session.get(f"https://speed.cloudflare.com/__down?bytes={size}",
+                                   timeout=aiohttp.ClientTimeout(total=size / MIN_SPEED)) as response:
+                await response.read()
+        return time.monotonic() - start <= size / MIN_SPEED
+    except Exception:
+        return False
+
+
 def load_pending() -> list[dict]:
     try:
         return json.loads(PENDING_FILE.read_text())
@@ -504,7 +534,7 @@ async def queue_link(chat_id: int, message_id: int, url: str, status: Message | 
     add_pending(chat_id, message_id, url, status.message_id if status else None)
     if status:
         try:
-            await status.edit_text("📡 Сейчас нет связи. Скачаю видео сам, как только сеть вернётся.")
+            await status.edit_text("📡 Сеть сейчас пропала или очень медленная. Скачаю видео сам, как только она наладится.")
         except Exception:
             pass
 
@@ -514,7 +544,7 @@ async def retry_pending(bot: Bot) -> None:
     while True:
         try:
             items = load_pending()
-            if items and await internet_ok():
+            if items and await network_fast():
                 for item in items:
                     await retry_one(bot, item)
         except Exception as e:
@@ -537,7 +567,7 @@ async def retry_one(bot: Bot, item: dict) -> None:
                 pass
         return
 
-    text = "🔄 Связь вернулась, скачиваю видео..."
+    text = "🔄 Сеть наладилась, скачиваю видео..."
     status = None
     if status_id:
         try:
@@ -560,7 +590,7 @@ async def retry_one(bot: Bot, item: dict) -> None:
                     i["status_id"] = status.message_id
             save_pending(items)
             try:
-                await status.edit_text("📡 Связь опять пропала. Попробую ещё раз позже.")
+                await status.edit_text("📡 Сеть опять пропала или тормозит. Попробую ещё раз позже.")
             except Exception:
                 pass
             raise

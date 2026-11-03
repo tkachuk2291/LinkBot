@@ -17,6 +17,10 @@
 - `retry_pending` раз в минуту: есть сеть → `retry_one` докачивает и отвечает на исходное сообщение.
   Статус-сообщение переиспользуется. Через 24 ч без сети — сдаётся.
 - Закрытые/удалённые посты в очередь не попадают.
+- Медленная сеть (с 2026-11-03): закачка дольше `DOWNLOAD_TIMEOUT` (120 с) обрывается через progress hook
+  (`SlowDownload`, «operation too slow») и ссылка уходит в очередь; `socket_timeout` 20 с.
+  При сетевой ошибке повтор без cookies не делается. Очередь повторяется, только если `network_fast()`:
+  1 МБ с speed.cloudflare.com качается со скоростью ≥ `MIN_SPEED` (200 КБ/с).
 
 ## Деплой
 - Стек Portainer `link_bot`, файлы стека: `/var/lib/docker/volumes/portainer_data/_data/compose/1`, секреты в `stack.env`.
@@ -41,6 +45,7 @@
   Причина: на сервере почти не работает интернет — Wi-Fi (wlp3s0, сигнал −76 dBm), скорость ~16–20 КБ/с,
   IPv6 не качает вообще, DNS отвечает 0.5–1.5 с, временами `Could not resolve host`. Ping при этом нормальный.
   Код ни при чём: медленная закачка с cdninstagram → read timeout → повтор без cookies → DNS-ошибка → очередь.
+  Фикс: обрыв медленной закачки и очередь (см. «Очередь»).
   Проверка: `curl -4 -so /dev/null -w "%{speed_download}\n" "https://speed.cloudflare.com/__down?bytes=10000000"`.
 
 ## Полезное
