@@ -37,6 +37,11 @@
   не отвечал). Очередь сработала: рилс DeW0nZUowzl из двух каналов в `pending.json`. Дыра: «broken pipe»/«connection broken»
   не входили в `NETWORK_MARKERS` — если бы это была последняя ошибка при живом `internet_ok()`, ссылка ушла бы в failed.
   Фикс: добавлены маркеры, коммит 0fcbc1d.
+- **2026-11-03 ~20:40–21:20 UTC** — ссылки обрабатывались по 2.5–12 минут, два рилса ушли в очередь.
+  Причина: на сервере почти не работает интернет — Wi-Fi (wlp3s0, сигнал −76 dBm), скорость ~16–20 КБ/с,
+  IPv6 не качает вообще, DNS отвечает 0.5–1.5 с, временами `Could not resolve host`. Ping при этом нормальный.
+  Код ни при чём: медленная закачка с cdninstagram → read timeout → повтор без cookies → DNS-ошибка → очередь.
+  Проверка: `curl -4 -so /dev/null -w "%{speed_download}\n" "https://speed.cloudflare.com/__down?bytes=10000000"`.
 
 ## Полезное
 - Проверить скачивание вручную: `docker exec link_bot-bot-1 yt-dlp -s <url>`.
