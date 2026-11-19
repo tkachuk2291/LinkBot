@@ -51,12 +51,8 @@ def _remember(items: list, message_id: int) -> None:
         del items[:-KEEP]
 
 
-def note_chat(chat_id: int) -> None:
-    state = load()
-    if str(chat_id) not in state:
-        _chat(state, chat_id)
-        save(state)
-        logging.info("New chat %s registered for catch-up", chat_id)
+def is_known(chat_id: int) -> bool:
+    return load().get(str(chat_id), {}).get("last") is not None
 
 
 def note_post(chat_id: int, message_id: int) -> None:

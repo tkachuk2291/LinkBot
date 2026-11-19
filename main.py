@@ -640,7 +640,8 @@ async def handle_links(bot: Bot, chat_id: int, message_id: int, urls: list[str])
 @dp.my_chat_member()
 async def chat_member_handler(event: ChatMemberUpdated) -> None:
     if event.chat.type in history.CHAT_TYPES and event.new_chat_member.status in ("administrator", "member"):
-        history.note_chat(event.chat.id)
+        if not history.is_known(event.chat.id):
+            start_catch_up(event.bot, event.chat.id, event.chat.title)
 
 
 @dp.channel_post()
@@ -655,6 +656,8 @@ async def link_handler(message: Message) -> None:
         if urls:
             await handle_links(message.bot, message.chat.id, message.message_id, urls)
         return
+    if not history.is_known(message.chat.id):
+        start_catch_up(message.bot, message.chat.id, message.chat.title)
     history.note_post(message.chat.id, message.message_id)
     if not history.claim(message.chat.id, message.message_id):
         return
@@ -674,10 +677,14 @@ async def connect_chat(message: Message, chat, from_id: int) -> None:
     if member.status not in ("administrator", "member"):
         await message.answer(f"Меня нет в канале «{chat.title}», сначала добавь меня туда админом.")
         return
-    history.register(chat.id, from_id)
-    logging.info("Chat %s (%s) connected from post %s", chat.id, chat.title, from_id)
+    start_catch_up(message.bot, chat.id, chat.title, from_id)
     await message.answer(f"Слежу за «{chat.title}». Проверяю посты начиная с этого и обработаю пропущенные ссылки.")
-    task = asyncio.create_task(catch_up_loop(message.bot, delay=0, only=chat.id))
+
+
+def start_catch_up(bot: Bot, chat_id: int, title: str | None, from_id: int = 1) -> None:
+    history.register(chat_id, from_id)
+    logging.info("Chat %s (%s) connected, checking from post %s", chat_id, title, from_id)
+    task = asyncio.create_task(catch_up_loop(bot, delay=0, only=chat_id))
     background.add(task)
     task.add_done_callback(background.discard)
 
