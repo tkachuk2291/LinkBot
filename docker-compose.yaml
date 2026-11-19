@@ -6,6 +6,7 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-flash-latest}
       - BROWSER_PROFILE=/browser/.config/chromium/Default
+      - SCAN_CHAT_ID=${SCAN_CHAT_ID:-564395362}
     volumes:
       - /home/server/linkbot-browser:/browser:ro
       - /home/server/linkbot-data:/data

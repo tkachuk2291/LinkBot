@@ -1,0 +1,13 @@
+[Unit]
+Description=LinkBot Claude summaries (claude -p for link bot when Gemini is out of limits)
+After=network-online.target
+
+[Service]
+User=server
+Environment=HOME=/home/server
+ExecStart=/usr/bin/python3 /home/server/LinkBot/claude_worker.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

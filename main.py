@@ -17,12 +17,14 @@ import aiohttp
 
 from dotenv import load_dotenv
 
+import claude_ai
+import history
 from logsetup import aiogram_middleware, setup_logging, watch_loop
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.filters import Command
-from aiogram.types import FSInputFile, Message, ReplyParameters
+from aiogram.types import ChatMemberUpdated, FSInputFile, Message, ReplyParameters
 from google import genai
 from google.genai import errors, types
 
@@ -284,6 +286,7 @@ FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-flash-lite-latest"]
 
 gemini = genai.Client(api_key=getenv("GEMINI_API_KEY"))
 dp = Dispatcher()
+background: set[asyncio.Task] = set()
 
 
 async def generate(contents, tools=None) -> str:
@@ -313,7 +316,21 @@ async def generate(contents, tools=None) -> str:
 SEARCH = types.Tool(google_search=types.GoogleSearch())
 
 
-async def summarize_media(path: Path, meta: str) -> str:
+def gemini_exhausted(error: BaseException) -> bool:
+    return isinstance(error, errors.APIError) and error.code in (429, 500, 503)
+
+
+async def summarize_media(path: Path, meta: str, duration: float | None = None) -> str:
+    try:
+        return await gemini_media(path, meta)
+    except Exception as e:
+        if not gemini_exhausted(e):
+            raise
+        logging.warning("Gemini limits exhausted (%s), summary by Claude", e.code)
+    return await claude_ai.summarize_media(path, meta, SUMMARY_PROMPT.format(max_chars=MAX_CAPTION - 200), duration)
+
+
+async def gemini_media(path: Path, meta: str) -> str:
     file = await gemini.aio.files.upload(file=path)
     try:
         while file.state == types.FileState.PROCESSING:
@@ -333,10 +350,16 @@ async def summarize_media(path: Path, meta: str) -> str:
 
 async def summarize_url(url: str) -> str:
     prompt = SUMMARY_PROMPT.format(max_chars=MAX_TEXT - 500)
-    return await generate(
-        f"{prompt}\n\n{url}",
-        tools=[types.Tool(url_context=types.UrlContext()), SEARCH],
-    )
+    try:
+        return await generate(
+            f"{prompt}\n\n{url}",
+            tools=[types.Tool(url_context=types.UrlContext()), SEARCH],
+        )
+    except Exception as e:
+        if not gemini_exhausted(e):
+            raise
+        logging.warning("Gemini limits exhausted (%s), summary by Claude", e.code)
+    return await claude_ai.summarize_url(url, prompt)
 
 
 async def show_summary(target: Message, summary_coro) -> None:
@@ -376,23 +399,6 @@ async def command_start_handler(message: Message) -> None:
         "Пришли ссылку на видео из Instagram, TikTok или YouTube, "
         "или на любую статью, и я сделаю выжимку."
     )
-
-
-def find_url(message: Message) -> str | None:
-    """Бере посилання з розмітки Telegram — він сам розпізнає справжні лінки."""
-    for entity in message.entities or []:
-        if entity.type == "text_link":
-            url = entity.url
-        elif entity.type == "url":
-            url = entity.extract_from(message.text)
-        else:
-            continue
-        if not url.lower().startswith(("http://", "https://")):
-            url = "https://" + url
-        host = urlparse(url).hostname or ""
-        if "." in host:
-            return url
-    return None
 
 
 async def is_reachable(url: str) -> bool:
@@ -523,7 +529,7 @@ async def process_link(bot: Bot, chat_id: int, message_id: int, url: str, source
             stat("video", source)
 
         try:
-            await show_summary(target, summarize_media(path, meta))
+            await show_summary(target, summarize_media(path, meta, video["duration"] if video else None))
         except Exception:
             logging.exception("Summary failed after video was sent")
 
@@ -602,45 +608,106 @@ async def retry_one(bot: Bot, item: dict) -> None:
     drop_pending(chat_id, message_id)
 
 
-@dp.channel_post(F.text)
-@dp.message(F.text, F.chat.type == "private")
+async def handle_links(bot: Bot, chat_id: int, message_id: int, urls: list[str]) -> None:
+    reply_to = ReplyParameters(message_id=message_id, allow_sending_without_reply=True)
+    for url in urls:
+        if "." not in (urlparse(url).hostname or ""):
+            continue
+        source = detect_source(url)
+        if source is None:
+            if not await is_reachable(url):
+                logging.info("Skip unreachable link %s", url)
+                continue
+            status = await bot.send_message(chat_id, "⏳ Делаю выжимку...", reply_parameters=reply_to)
+            stat("summary", None)
+            await show_summary(status, summarize_url(url))
+            continue
+
+        if source == "instagram" and not INSTAGRAM_POST_RE.search(url):
+            continue
+
+        status = None
+        try:
+            status = await bot.send_message(chat_id, "Скачиваю видео...", reply_parameters=reply_to)
+            await process_link(bot, chat_id, message_id, url, source, status)
+        except Exception as e:
+            if not (is_network_error(e) or not await internet_ok()):
+                logging.exception("Link %s failed", url)
+                continue
+            await queue_link(chat_id, message_id, url, status)
+
+
+@dp.my_chat_member()
+async def chat_member_handler(event: ChatMemberUpdated) -> None:
+    if event.chat.type in history.CHAT_TYPES and event.new_chat_member.status in ("administrator", "member"):
+        history.note_chat(event.chat.id)
+
+
+@dp.channel_post()
+@dp.message(F.chat.type == "private")
 async def link_handler(message: Message) -> None:
-    url = find_url(message)
-    if url is None:
-        return
-
-    source = detect_source(url)
-    if source is None:
-        if not await is_reachable(url):
-            logging.info("Skip unreachable link %s", url)
+    urls = history.find_urls(message.text or message.caption, message.entities or message.caption_entities)
+    if message.chat.type not in history.CHAT_TYPES:
+        origin = message.forward_origin
+        if origin is not None and origin.type == "channel" and message.chat.id == history.SCAN_CHAT:
+            await connect_chat(message, origin.chat, origin.message_id)
             return
-        status = await message.reply("⏳ Делаю выжимку...")
-        stat("summary", None)
-        await show_summary(status, summarize_url(url))
+        if urls:
+            await handle_links(message.bot, message.chat.id, message.message_id, urls)
         return
-
-    if source == "instagram" and not INSTAGRAM_POST_RE.search(url):
+    history.note_post(message.chat.id, message.message_id)
+    if not history.claim(message.chat.id, message.message_id):
         return
-
-    status = None
     try:
-        status = await message.reply("Скачиваю видео...")
-        await process_link(message.bot, message.chat.id, message.message_id, url, source, status)
+        if urls:
+            await handle_links(message.bot, message.chat.id, message.message_id, urls)
+    finally:
+        history.release(message.chat.id, message.message_id)
+
+
+async def connect_chat(message: Message, chat, from_id: int) -> None:
+    try:
+        member = await message.bot.get_chat_member(chat.id, message.bot.id)
     except Exception as e:
-        if not (is_network_error(e) or not await internet_ok()):
-            raise
-        await queue_link(message.chat.id, message.message_id, url, status)
+        await message.answer(f"Не вижу канал «{chat.title}»: {e}")
+        return
+    if member.status not in ("administrator", "member"):
+        await message.answer(f"Меня нет в канале «{chat.title}», сначала добавь меня туда админом.")
+        return
+    history.register(chat.id, from_id)
+    logging.info("Chat %s (%s) connected from post %s", chat.id, chat.title, from_id)
+    await message.answer(f"Слежу за «{chat.title}». Проверяю посты начиная с этого и обработаю пропущенные ссылки.")
+    task = asyncio.create_task(catch_up_loop(message.bot, delay=0, only=chat.id))
+    background.add(task)
+    task.add_done_callback(background.discard)
+
+
+async def catch_up_loop(bot: Bot, delay: float = history.START_DELAY, only: int | None = None) -> None:
+    while True:
+        try:
+            await history.catch_up(bot, handle_links, delay, only)
+            return
+        except Exception as e:
+            if not is_network_error(e):
+                logging.exception("Catch-up failed")
+                return
+            logging.warning("Catch-up waits for network: %s", e)
+        delay = 0
+        await asyncio.sleep(RETRY_EVERY)
 
 
 async def main() -> None:
     watch_loop()
     dp.update.outer_middleware(aiogram_middleware())
     bot = Bot(token=TOKEN)
+    bot.session.middleware(history.RememberSent())
     retry_task = asyncio.create_task(retry_pending(bot))
+    catch_up_task = asyncio.create_task(catch_up_loop(bot))
     try:
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         retry_task.cancel()
+        catch_up_task.cancel()
 
 
 if __name__ == "__main__":
