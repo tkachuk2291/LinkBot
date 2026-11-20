@@ -18,6 +18,7 @@ import aiohttp
 from dotenv import load_dotenv
 
 import claude_ai
+import cookies
 import history
 from logsetup import aiogram_middleware, setup_logging, watch_loop
 
@@ -198,20 +199,19 @@ def get_media(url: str, source: str, folder: str) -> tuple[Path, str, dict | Non
         'progress_hooks': [deadline_hook(time.monotonic() + DOWNLOAD_TIMEOUT)],
     }
     if source == "instagram":
-        browser_profile = getenv("BROWSER_PROFILE")
-        if browser_profile:
-            ydl_opts['cookiesfrombrowser'] = ('chromium', browser_profile, 'BASICTEXT', None)
-        else:
-            ydl_opts['cookiesfrombrowser'] = ('chrome',)
+        ydl_opts['cookiesfrombrowser'] = cookies.options()
 
     try:
         info, videos, image, music = fetch(ydl_opts, url, source, folder)
+        if source == "instagram":
+            cookies.mark_alive()
     except Exception as e:
         if 'cookiesfrombrowser' not in ydl_opts or is_network_error(e):
             raise
         logging.warning("Download with cookies failed, retrying without them")
         ydl_opts.pop('cookiesfrombrowser', None)
         info, videos, image, music = fetch(ydl_opts, url, source, folder)
+        cookies.mark_dead(url)
 
     meta = "\n".join(
         f"{label}: {info[key]}"
@@ -227,6 +227,32 @@ def get_media(url: str, source: str, folder: str) -> tuple[Path, str, dict | Non
     else:
         return image, meta, None
     return path, meta, probe(path)
+
+
+class QuietLogger:
+    def debug(self, msg: str) -> None:
+        pass
+
+    warning = error = info = debug
+
+
+def instagram_cookies_work(url: str) -> bool:
+    opts = {
+        'quiet': True,
+        'noprogress': True,
+        'logger': QuietLogger(),
+        'socket_timeout': SOCKET_TIMEOUT,
+        'ignore_no_formats_error': True,
+        'cookiesfrombrowser': cookies.options(),
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.extract_info(url, download=False)
+        return True
+    except Exception as e:
+        if is_network_error(e):
+            raise
+        return False
 
 
 def download(ydl: yt_dlp.YoutubeDL, url: str, stem: Path) -> Path:
@@ -710,11 +736,13 @@ async def main() -> None:
     bot.session.middleware(history.RememberSent())
     retry_task = asyncio.create_task(retry_pending(bot))
     catch_up_task = asyncio.create_task(catch_up_loop(bot))
+    cookies_task = asyncio.create_task(cookies.watch(bot, instagram_cookies_work))
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         retry_task.cancel()
         catch_up_task.cancel()
+        cookies_task.cancel()
 
 
 if __name__ == "__main__":

@@ -11,6 +11,16 @@
 - Лимит Telegram для ботов — 50 МБ; больше — только выжимка.
 - `process_link` — общая логика для нового сообщения и для повтора из очереди.
 
+## Протухшие cookies Instagram (с 2026-11-20)
+- `cookies.py`: если скачивание с cookies упало не из-за сети, а без cookies прошло — cookies считаются мёртвыми (`mark_dead`).
+- `cookies.watch` раз в минуту: шлёт владельцу (`SCAN_CHAT_ID`) «🔑 Instagram разлогинил бота…» со ссылкой на браузер (`BROWSER_URL`), напоминает раз в сутки.
+- Когда меняется файл `Cookies` профиля (человек залогинился), не чаще раза в 5 мин проверяет cookies на упавшей ссылке
+  (`instagram_cookies_work`); работают — пишет «✅ Вход в Instagram сохранён». Также оживляет любая удачная закачка с cookies.
+- Cookies живут в профиле Chromium (`~/linkbot-browser`), бот читает их при каждой закачке — после входа сохранять ничего не надо.
+- Браузер снаружи: `tailscale serve --bg --https=3443 http://127.0.0.1:3000` → https://server.tail637fbe.ts.net:3443/
+  (только внутри tailnet: iPhone и MacBook владельца). Вход — BROWSER_USER/BROWSER_PASSWORD из stack.env.
+- `SCAN_CHAT_ID` и `BROWSER_URL` заданы в `stack.env` (дефолт SCAN_CHAT_ID в compose — 0).
+
 ## Очередь при сбоях сети (с 2026-10-18)
 - `is_network_error` смотрит всю цепочку исключений (таймауты, DNS, curl 6/7/28/35/56, TelegramNetworkError).
 - Если ошибка сетевая или `internet_ok()` = False — ссылка пишется в `/data/pending.json` (том `~/linkbot-data`).
@@ -70,6 +80,7 @@
   Причина: снова деградация сети — всю ночь таймауты к Telegram, из контейнера `yt-dlp -s` к instagram.com падает с curl 28
   (connect timeout 20 с). Попытка с cookies получила 400 от Instagram API, повтор без cookies упёрся в таймаут → ссылка ушла в очередь
   (`No network, queued`). Код отработал штатно, изменений нет. Если 400 с cookies повторится при живой сети — проверить вход в Instagram в `browser`.
+  Дополнение: при живой сети 400 с cookies повторялся стабильно, без cookies рилс открывался — вход протух (cookies от 2026-10-01). Фикс: детектор протухших cookies (см. выше). Обновление yt-dlp до 2026.10.26 отложено: PyPI с сервера не качался.
 
 ## Полезное
 - Если `docker logs` пуст после аварийного выключения — читать файл напрямую: `sudo cat $(docker inspect -f {{.LogPath}} link_bot-bot-1) | tr -d '\000'`.
