@@ -10,7 +10,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from aiogram.types import Message, MessageEntity
 
 STATE_FILE = Path(getenv("CHANNELS_FILE", "/data/channels.json"))
-SCAN_CHAT = int(getenv("SCAN_CHAT_ID", "564395362"))
+SCAN_CHAT = int(getenv("SCAN_CHAT_ID", "0"))
 RESCAN = 20
 MAX_GAP = 30
 KEEP = 500
