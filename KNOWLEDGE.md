@@ -91,6 +91,10 @@
   Причина: сеть сервера лежала ~30 мин (141 попытка `getUpdates`, DNS `Name or service not known` к api.telegram.org);
   после восстановления повтор с cookies снова получил 400 — cookies всё ещё протухшие. Код отработал штатно: повтор без cookies
   прошёл, `mark_dead` сработал, рилс отправлен (14:04:59). Изменений кода нет. Нужен вход в Instagram в `browser`.
+- **2026-11-20 17:15–19:05 UTC** — `[Instagram] <id>: Video info extraction failed: HTTP Error 400` на каждом новом рилсе
+  (DfpWrUKt1r6, DftzWbaBB5w, De4JcibgPc-, Df9sJz-IBMg). Причина та же: вход в Instagram в `browser` так и не обновлён, cookies
+  протухшие (`dead` с 14:04, уведомление владельцу ушло, повтор — раз в сутки). Повтор без cookies каждый раз успешен, все рилсы
+  отправлены. Изменений кода нет. Ошибка будет повторяться на каждой ссылке Instagram, пока владелец не войдёт в `browser`.
 
 ## Полезное
 - Если `docker logs` пуст после аварийного выключения — читать файл напрямую: `sudo cat $(docker inspect -f {{.LogPath}} link_bot-bot-1) | tr -d '\000'`.
