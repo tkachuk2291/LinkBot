@@ -76,7 +76,8 @@
 
 - **2026-11-05 23:04 → 2026-11-19 10:21 UTC** — сервер был выключен 2 недели. После включения бот не ответил на 7 ссылок:
   Telegram хранит неполученные апдейты только 24 ч. Также json-лог Docker испорчен нулями (`docker logs` молчал, ошибка
-  «Error decoding log file \x00») — пересоздание контейнера даёт новый лог. Фикс: дочитка пропущенных постов (см. выше), 7 ссылок обработаны.- **2026-11-20 10:47 UTC** — `[Instagram] Df8Z9NJtJ6P: Video info extraction failed: HTTP Error 400` (рилс из лички и канала).
+  «Error decoding log file \x00») — пересоздание контейнера даёт новый лог. Фикс: дочитка пропущенных постов (см. выше), 7 ссылок обработаны.
+- **2026-11-20 10:47 UTC** — `[Instagram] Df8Z9NJtJ6P: Video info extraction failed: HTTP Error 400` (рилс из лички и канала).
   Причина: снова деградация сети — всю ночь таймауты к Telegram, из контейнера `yt-dlp -s` к instagram.com падает с curl 28
   (connect timeout 20 с). Попытка с cookies получила 400 от Instagram API, повтор без cookies упёрся в таймаут → ссылка ушла в очередь
   (`No network, queued`). Код отработал штатно, изменений нет. Если 400 с cookies повторится при живой сети — проверить вход в Instagram в `browser`.
@@ -86,6 +87,10 @@
   повтор без cookies обрывался по `DOWNLOAD_TIMEOUT` (`SlowDownload`) и молча возвращался в очередь. `mark_dead` вызывался
   только после удачной закачки, поэтому владелец не получал «🔑 Instagram разлогинил бота».
   Фикс: `SlowDownload` при повторе без cookies тоже помечает cookies мёртвыми, коммит 178d70e. Нужен вход в Instagram в `browser`.
+- **2026-11-20 13:3x–14:05 UTC** — `[Instagram] Df8Z9NJtJ6P: Video info extraction failed: HTTP Error 400` при повторе из очереди.
+  Причина: сеть сервера лежала ~30 мин (141 попытка `getUpdates`, DNS `Name or service not known` к api.telegram.org);
+  после восстановления повтор с cookies снова получил 400 — cookies всё ещё протухшие. Код отработал штатно: повтор без cookies
+  прошёл, `mark_dead` сработал, рилс отправлен (14:04:59). Изменений кода нет. Нужен вход в Instagram в `browser`.
 
 ## Полезное
 - Если `docker logs` пуст после аварийного выключения — читать файл напрямую: `sudo cat $(docker inspect -f {{.LogPath}} link_bot-bot-1) | tr -d '\000'`.
