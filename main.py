@@ -210,7 +210,11 @@ def get_media(url: str, source: str, folder: str) -> tuple[Path, str, dict | Non
             raise
         logging.warning("Download with cookies failed, retrying without them")
         ydl_opts.pop('cookiesfrombrowser', None)
-        info, videos, image, music = fetch(ydl_opts, url, source, folder)
+        try:
+            info, videos, image, music = fetch(ydl_opts, url, source, folder)
+        except SlowDownload:
+            cookies.mark_dead(url)
+            raise
         cookies.mark_dead(url)
 
     meta = "\n".join(
