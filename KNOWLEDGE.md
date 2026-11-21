@@ -95,6 +95,9 @@
   (DfpWrUKt1r6, DftzWbaBB5w, De4JcibgPc-, Df9sJz-IBMg). Причина та же: вход в Instagram в `browser` так и не обновлён, cookies
   протухшие (`dead` с 14:04, уведомление владельцу ушло, повтор — раз в сутки). Повтор без cookies каждый раз успешен, все рилсы
   отправлены. Изменений кода нет. Ошибка будет повторяться на каждой ссылке Instagram, пока владелец не войдёт в `browser`.
+- **2026-11-21 20:32 UTC** — `[Instagram] DZk8X3-RLJX: Video info extraction failed: HTTP Error 400` (рилс из канала).
+  Причина та же: cookies Instagram в `browser` протухшие, вход не обновлён. Повтор без cookies успешен через 4 с, рилс отправлен.
+  Изменений кода нет. Ошибка будет повторяться на каждой ссылке Instagram, пока владелец не войдёт в `browser`.
 
 ## Полезное
 - Если `docker logs` пуст после аварийного выключения — читать файл напрямую: `sudo cat $(docker inspect -f {{.LogPath}} link_bot-bot-1) | tr -d '\000'`.
