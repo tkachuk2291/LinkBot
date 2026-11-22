@@ -104,6 +104,8 @@
   Причина 400 та же: cookies протухшие, повтор без cookies прошёл, фото отправлено. Но выжимка упала: `ValueError: Unknown mime type`
   — Instagram отдал картинку `image.webp`, а в slim-образе `mimetypes` не знает `.webp`, и `gemini.aio.files.upload` не смог определить тип.
   Фикс: `mimetypes.add_type("image/webp", ".webp")` в `main.py`, коммит 101936b. Вход в Instagram в `browser` всё ещё нужен.
+- **2026-11-22 09:21 UTC** — инцидент #16 `ValueError: Unknown mime type` — та же запись, что выше (webp-фото Df_pRJmA37_), алерт пришёл после фикса.
+  Проверено: в задеплоенном контейнере `mimetypes.guess_type('a.webp')` → `image/webp`, новых ошибок нет. Код не менялся.
 
 ## Полезное
 - Если `docker logs` пуст после аварийного выключения — читать файл напрямую: `sudo cat $(docker inspect -f {{.LogPath}} link_bot-bot-1) | tr -d '\000'`.
