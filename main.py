@@ -5,6 +5,7 @@ import asyncio
 import html
 import json
 import logging
+import mimetypes
 import re
 import subprocess
 import tempfile
@@ -28,6 +29,8 @@ from aiogram.filters import Command
 from aiogram.types import ChatMemberUpdated, FSInputFile, Message, ReplyParameters
 from google import genai
 from google.genai import errors, types
+
+mimetypes.add_type("image/webp", ".webp")
 
 MAX_SIZE = 50 * 1024 * 1024
 MAX_TEXT = 4096
