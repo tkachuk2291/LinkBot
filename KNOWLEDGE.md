@@ -100,6 +100,10 @@
   Изменений кода нет. Ошибка будет повторяться на каждой ссылке Instagram, пока владелец не войдёт в `browser`.
 - **2026-11-21 20:49 UTC** — `[Instagram] DerVgdqoCIn: Video info extraction failed: HTTP Error 400` (рилс из канала).
   Причина та же: cookies Instagram протухшие. Повтор без cookies успешен через 3 с, рилс отправлен. Изменений кода нет.
+- **2026-11-22 09:21 UTC** — `[Instagram] Df_pRJmA37_: Video info extraction failed: HTTP Error 400` (фото-пост из канала).
+  Причина 400 та же: cookies протухшие, повтор без cookies прошёл, фото отправлено. Но выжимка упала: `ValueError: Unknown mime type`
+  — Instagram отдал картинку `image.webp`, а в slim-образе `mimetypes` не знает `.webp`, и `gemini.aio.files.upload` не смог определить тип.
+  Фикс: `mimetypes.add_type("image/webp", ".webp")` в `main.py`, коммит 101936b. Вход в Instagram в `browser` всё ещё нужен.
 
 ## Полезное
 - Если `docker logs` пуст после аварийного выключения — читать файл напрямую: `sudo cat $(docker inspect -f {{.LogPath}} link_bot-bot-1) | tr -d '\000'`.
