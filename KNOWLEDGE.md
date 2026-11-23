@@ -106,6 +106,10 @@
   Фикс: `mimetypes.add_type("image/webp", ".webp")` в `main.py`, коммит 101936b. Вход в Instagram в `browser` всё ещё нужен.
 - **2026-11-22 09:21 UTC** — инцидент #16 `ValueError: Unknown mime type` — та же запись, что выше (webp-фото Df_pRJmA37_), алерт пришёл после фикса.
   Проверено: в задеплоенном контейнере `mimetypes.guess_type('a.webp')` → `image/webp`, новых ошибок нет. Код не менялся.
+- **2026-11-23 19:28 UTC** — инцидент #18 `[Instagram] DgDZ1vjOxSi: Video info extraction failed: HTTP Error 400` (рилс из канала).
+  Причина та же: cookies Instagram протухшие. Повтор без cookies успешен через 16 с, рилс отправлен (`result: video`).
+  В 17:40–17:45 файл `Cookies` менялся, но проверка `_recheck` была пропущена из-за DNS-сбоя сети; в 19:28 cookies всё ещё дают 400.
+  Изменений кода нет. Нужен вход в Instagram в `browser`.
 - **2026-11-22 09:23 UTC** — инцидент #17 `[Instagram] Df_pRJmA37_: Video info extraction failed: HTTP Error 400` (повторная отправка того же поста после деплоя).
   Причина та же: cookies Instagram протухшие. Повтор без cookies прошёл, фото отправлено, ошибки mime больше нет (фикс 101936b работает).
   Изменений кода нет. Нужен вход в Instagram в `browser`.
