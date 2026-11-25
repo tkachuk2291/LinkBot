@@ -113,6 +113,9 @@
 - **2026-11-22 09:23 UTC** — инцидент #17 `[Instagram] Df_pRJmA37_: Video info extraction failed: HTTP Error 400` (повторная отправка того же поста после деплоя).
   Причина та же: cookies Instagram протухшие. Повтор без cookies прошёл, фото отправлено, ошибки mime больше нет (фикс 101936b работает).
   Изменений кода нет. Нужен вход в Instagram в `browser`.
+- **2026-11-25 13:27 UTC** — инцидент #19 `[Instagram] Df5Rv1rI2nP: Video info extraction failed: HTTP Error 400` (рилс из канала).
+  Причина та же: cookies Instagram протухшие. Повтор без cookies успешен через 3 с, рилс отправлен (`result: video`).
+  Утренний DNS-сбой (08:5x) к инциденту не относится. Изменений кода нет. Нужен вход в Instagram в `browser`.
 
 ## Полезное
 - Если `docker logs` пуст после аварийного выключения — читать файл напрямую: `sudo cat $(docker inspect -f {{.LogPath}} link_bot-bot-1) | tr -d '\000'`.
