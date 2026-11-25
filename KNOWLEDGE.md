@@ -119,6 +119,9 @@
 - **2026-11-25 15:25 UTC** — инцидент #20 `[Instagram] DgKfDmvqj2b: Video info extraction failed: HTTP Error 400` (рилс из канала).
   Причина та же: cookies Instagram протухшие. Повтор без cookies успешен через 3 с, рилс отправлен (`result: video`).
   Изменений кода нет. Нужен вход в Instagram в `browser`.
+- **2026-11-25 23:55 UTC** — инцидент #21 `[Instagram] DgLPT-pscyi: Video info extraction failed: HTTP Error 400` (рилс из канала).
+  Причина та же: cookies Instagram протухшие. Повтор без cookies успешен через 3 с, рилс отправлен (`Link video`).
+  Сбой сети 23:26–23:29 (таймауты Telegram, DNS) к инциденту не относится. Изменений кода нет. Нужен вход в Instagram в `browser`.
 
 ## Полезное
 - Если `docker logs` пуст после аварийного выключения — читать файл напрямую: `sudo cat $(docker inspect -f {{.LogPath}} link_bot-bot-1) | tr -d '\000'`.
