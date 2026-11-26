@@ -43,7 +43,7 @@
 - Обрабатываются все ссылки в сообщении и ссылки в подписях к фото/видео.
 
 ## Выжимки: Gemini → Claude
-- Сначала Gemini (`gemini-flash-latest`, потом запасные). Если все упёрлись в 429/500/503 — Claude.
+- Сначала Gemini (`gemini-flash-latest`, потом запасные). Если все упёрлись в 429/500/503 или 402 (кончились кредиты) — Claude.
 - Claude идёт через хост: бот кладёт `job.json` + 8 кадров ролика в `/data/claude/<id>/` (на хосте `~/linkbot-data/claude`),
   systemd-сервис `linkbot-claude` (`claude_worker.py`, юнит в репо `linkbot-claude.service`) запускает `claude -p` под логином пользователя server и пишет `result.json`.
   Журнал: `journalctl -u linkbot-claude`. Таймаут ожидания в боте 420 с.
@@ -127,6 +127,9 @@
   Сразу после этого `Summary failed`: Gemini `402 RESOURCE_EXHAUSTED` — закончились предоплаченные кредиты в AI Studio.
   Код обработал штатно (в подписи «Не удалось сделать выжимку»). Изменений кода нет. Нужно: вход в Instagram в `browser`
   и пополнение баланса Gemini API.
+- **2026-11-26 14:05 UTC** — инцидент #24 `ClientError: 402 RESOURCE_EXHAUSTED` (prepayment credits depleted) — тот же рилс DgM_3GYzE0g.
+  Причина: закончились предоплаченные кредиты Gemini, а `gemini_exhausted` переключал на Claude только при 429/500/503, поэтому выжимка падала.
+  Фикс: 402 добавлен в `gemini_exhausted` — при пустом балансе выжимку делает Claude. Коммит 2af8d27. Баланс Gemini всё равно надо пополнить.
 
 ## Полезное
 - Если `docker logs` пуст после аварийного выключения — читать файл напрямую: `sudo cat $(docker inspect -f {{.LogPath}} link_bot-bot-1) | tr -d '\000'`.
