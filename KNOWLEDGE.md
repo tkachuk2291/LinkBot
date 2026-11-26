@@ -122,6 +122,11 @@
 - **2026-11-25 23:55 UTC** — инцидент #21 `[Instagram] DgLPT-pscyi: Video info extraction failed: HTTP Error 400` (рилс из канала).
   Причина та же: cookies Instagram протухшие. Повтор без cookies успешен через 3 с, рилс отправлен (`Link video`).
   Сбой сети 23:26–23:29 (таймауты Telegram, DNS) к инциденту не относится. Изменений кода нет. Нужен вход в Instagram в `browser`.
+- **2026-11-26 14:05 UTC** — инцидент #23 `[Instagram] DgM_3GYzE0g: Video info extraction failed: HTTP Error 400` (рилс из канала).
+  Причина та же: cookies Instagram протухшие. Повтор без cookies успешен через 3 с, рилс отправлен (`Link video`).
+  Сразу после этого `Summary failed`: Gemini `402 RESOURCE_EXHAUSTED` — закончились предоплаченные кредиты в AI Studio.
+  Код обработал штатно (в подписи «Не удалось сделать выжимку»). Изменений кода нет. Нужно: вход в Instagram в `browser`
+  и пополнение баланса Gemini API.
 
 ## Полезное
 - Если `docker logs` пуст после аварийного выключения — читать файл напрямую: `sudo cat $(docker inspect -f {{.LogPath}} link_bot-bot-1) | tr -d '\000'`.
