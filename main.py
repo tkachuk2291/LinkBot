@@ -350,7 +350,7 @@ SEARCH = types.Tool(google_search=types.GoogleSearch())
 
 
 def gemini_exhausted(error: BaseException) -> bool:
-    return isinstance(error, errors.APIError) and error.code in (429, 500, 503)
+    return isinstance(error, errors.APIError) and error.code in (402, 429, 500, 503)
 
 
 async def summarize_media(path: Path, meta: str, duration: float | None = None) -> str:
