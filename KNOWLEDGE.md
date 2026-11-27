@@ -130,6 +130,10 @@
 - **2026-11-26 14:05 UTC** — инцидент #24 `ClientError: 402 RESOURCE_EXHAUSTED` (prepayment credits depleted) — тот же рилс DgM_3GYzE0g.
   Причина: закончились предоплаченные кредиты Gemini, а `gemini_exhausted` переключал на Claude только при 429/500/503, поэтому выжимка падала.
   Фикс: 402 добавлен в `gemini_exhausted` — при пустом балансе выжимку делает Claude. Коммит 2af8d27. Баланс Gemini всё равно надо пополнить.
+- **2026-11-27 16:12 UTC** — инцидент #28 `[Instagram] DgPej_tgGfg: Video info extraction failed: HTTP Error 400` (рилс из канала).
+  Причина та же: cookies Instagram протухшие. Повтор без cookies успешен через 3 с, рилс отправлен (`Link video`), выжимку сделал
+  Claude (Gemini 402, фолбэк 2af8d27 работает). Таймауты getUpdates днём к инциденту не относятся. Изменений кода нет.
+  Нужно: вход в Instagram в `browser` и пополнение баланса Gemini.
 
 ## Полезное
 - Если `docker logs` пуст после аварийного выключения — читать файл напрямую: `sudo cat $(docker inspect -f {{.LogPath}} link_bot-bot-1) | tr -d '\000'`.
