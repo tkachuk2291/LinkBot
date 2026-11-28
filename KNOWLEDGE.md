@@ -138,6 +138,9 @@
   через 20 с то же для DgRuAhFxnbU. Причина та же: cookies Instagram протухшие. Оба повтора без cookies успешны (`Link video`),
   выжимку сделал Claude (Gemini 402). Таймауты getUpdates к инциденту не относятся. Изменений кода нет.
   Нужно: вход в Instagram в `browser` и пополнение баланса Gemini.
+- **2026-11-28 19:09 UTC** — инцидент #32 `[Instagram] DgRuAhFxnbU: Video info extraction failed: HTTP Error 400` — дубль #31
+  (второй рилс того же события). Повтор без cookies успешен, выжимка Claude готова в 19:10:48, update обработан. Для DfNdt84MVgZ
+  сообщение выжимки было удалено до правки (`message to edit not found`) — код отработал штатно. Изменений кода нет.
 
 ## Полезное
 - Если `docker logs` пуст после аварийного выключения — читать файл напрямую: `sudo cat $(docker inspect -f {{.LogPath}} link_bot-bot-1) | tr -d '\000'`.
